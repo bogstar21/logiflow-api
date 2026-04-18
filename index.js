@@ -112,6 +112,57 @@ app.put("/api/deliveries/:id", async (req, res) => {
     }
 });
 
+// POST /api/photos/upload
+app.post("/api/photos/upload", async (req, res) => {
+    try {
+        const { base64, deliveryId } = req.body;
+
+        // Convert base64 to buffer
+        const base64Data = base64.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, "base64");
+
+        // Upload to Supabase Storage
+        const fileName = `${deliveryId}_${Date.now()}.jpg`;
+        const { error: uploadError } = await supabase
+            .storage
+            .from("evidencias")
+            .upload(fileName, buffer, {
+                contentType: "image/jpeg",
+                upsert: true
+            });
+
+        if (uploadError) throw uploadError;
+
+        // Get public URL
+        const { data: urlData } = supabase
+            .storage
+            .from("evidencias")
+            .getPublicUrl(fileName);
+
+        const photoUrl = urlData.publicUrl;
+
+        // Update delivery with photo URL
+        const { data, error } = await supabase
+            .from("entregas")
+            .update({
+                status: "delivered",
+                photo_url: photoUrl,
+                updated_at: new Date()
+            })
+            .eq("delivery_id", deliveryId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.json({ success: true, photo_url: photoUrl, data });
+
+    } catch (error) {
+        console.error("Photo upload error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // This MUST be at the very bottom of index.js!
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
